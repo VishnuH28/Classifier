@@ -1,0 +1,6 @@
+flask
+gunicorn
+opencv-python
+ultralytics
+psycopg2-binary
+python-dotenv
