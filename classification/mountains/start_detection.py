@@ -2,9 +2,9 @@ import os
 import uuid
 import asyncio
 from .detector import process_images as detect_mountains_in_folder
-from data.err_msgs import ErrorMessages  
-from database.postgres import postgres, check_connection  
-from data.table_names import TableNames  
+from data.err_msgs import ErrorMessages
+from database.postgres import postgres, check_connection
+from data.table_names import TableNames
 
 async def start_detection(r_id, abs_path):
     """Main entry point to start mountain detection process."""
@@ -24,18 +24,17 @@ async def start_detection(r_id, abs_path):
             postgres.commit()
 
         if not os.path.exists(abs_path):
-            raise FileNotFoundError(f"The file {abs_path} does not exist.")
+            raise FileNotFoundError(f"The folder {abs_path} does not exist.")
 
         input_folder = abs_path
         output_folder = os.path.join(os.path.dirname(__file__), "detected_mountains")
-        images_with_mountains, stats = detect_mountains_in_folder(input_folder, output_folder)
+        images_with_mountains, stats = await asyncio.to_thread(detect_mountains_in_folder, input_folder, output_folder)
 
         if not images_with_mountains:
             raise Exception("No mountains detected in the provided folder.")
 
         with postgres.cursor() as cur:
-            for image_path in images_with_mountains:
-                detections = detect_mountains_in_folder(image_path)  # Re-detect for details
+            for image_path, detections in stats['detections'].items():
                 for label, _, confidence in detections:
                     cur.execute(
                         f"INSERT INTO {TableNames.DETECTED_OBJECTS.value} (req_id, image_path, object_label, confidence) VALUES (%s, %s, %s, %s)",
@@ -50,7 +49,7 @@ async def start_detection(r_id, abs_path):
         success = True
         msg = "Mountain detection process completed successfully"
     except Exception as e:
-        print(f"start_mountain_detection(): {e}")
+        print(f"start_mountain_detection(): {str(e)}")
         msg = str(e) or ErrorMessages.GENERIC_ERROR.value
         try:
             with postgres.cursor() as cur:

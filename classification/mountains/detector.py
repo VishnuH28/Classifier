@@ -1,54 +1,61 @@
 import cv2
 import os
-from ultralytics import YOLO
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.applications import efficientnet
 import time
 
-MOUNTAIN_CLASSES = {19: "mountain"}  # Placeholder; YOLOv8 Nano needs custom training for mountains
+MOUNTAIN_CLASSES = {19: "mountain"}  # ADE20K class index, adjust based on actual weights
 
-def initialize_detector(model_path="yolov8n.pt"):
-    """Initialize the YOLOv8 Nano detector."""
+def initialize_detector(model_path="efficientdet_d0_ade20k.h5"):
     try:
-        print("Initializing YOLOv8 Nano detector for mountains...")
-        detector = YOLO(model_path)
-        print("YOLOv8 Nano detector initialized successfully!")
+        print("Initializing EfficientDet-D0 detector for mountains (ADE20K)...")
+        detector = tf.keras.models.load_model(model_path, compile=False)
+        print("EfficientDet-D0 detector initialized successfully!")
         return detector
     except Exception as e:
-        print(f"Error initializing YOLOv8 detector: {e}")
+        print(f"Error initializing EfficientDet detector: {e}")
         return None
 
-def detect_mountains(detector, image_path, confidence_threshold=0.5):
-    """Detect mountains in a single image (placeholder)."""
+def preprocess_image(image_path, input_size=(512, 512)):
+    img = cv2.imread(image_path)
+    if img is None:
+        raise ValueError(f"Error loading image {image_path}")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img, input_size)
+    img = efficientnet.preprocess_input(img)
+    return np.expand_dims(img, axis=0)
+
+def detect_mountains_single(detector, image_path, confidence_threshold=0.5):
     if detector is None:
         print("Detector not initialized!")
         return []
 
     try:
-        img = cv2.imread(image_path)
-        if img is None:
-            print(f"Error loading image {image_path}")
-            return []
+        img = preprocess_image(image_path)
+        predictions = detector.predict(img)[0]  # [boxes, scores, classes, num_detections]
+        boxes, scores, classes = predictions[:4], predictions[4], predictions[5]
 
-        results = detector(img)
         detected = []
-
-        for result in results:
-            for box in result.boxes:
-                x, y, w, h = map(int, box.xywh[0])
-                confidence = box.conf.item()
-                class_id = int(box.cls.item())
-                if class_id in MOUNTAIN_CLASSES and confidence > confidence_threshold:
-                    label = MOUNTAIN_CLASSES[class_id]
-                    detected.append((label, (x, y, w, h), confidence))
+        for i in range(int(predictions[6])):  # num_detections
+            confidence = scores[i]
+            class_id = int(classes[i])
+            if class_id in MOUNTAIN_CLASSES and confidence > confidence_threshold:
+                y_min, x_min, y_max, x_max = boxes[i]
+                h, w = img.shape[1:3]
+                x, y = int(x_min * w), int(y_min * h)
+                width, height = int((x_max - x_min) * w), int((y_max - y_min) * h)
+                label = MOUNTAIN_CLASSES[class_id]
+                detected.append((label, (x, y, width, height), confidence))
         return detected
     except Exception as e:
         print(f"Error detecting mountains in {image_path}: {e}")
         return []
 
-def process_images(input_folder, output_folder=None, confidence_threshold=0.5):
-    """Process images in a folder for mountain detection."""
+def process_images(input_folder, output_folder=None, confidence_threshold=0.5, max_images=50):
     if not os.path.exists(input_folder):
         print(f"Error: Input folder '{input_folder}' not found!")
-        return [], {'detected': 0, 'processed': 0, 'errors': 0}
+        return [], {'detected': 0, 'processed': 0, 'errors': 0, 'detections': {}}
 
     if output_folder:
         os.makedirs(output_folder, exist_ok=True)
@@ -56,28 +63,29 @@ def process_images(input_folder, output_folder=None, confidence_threshold=0.5):
     image_files = [
         os.path.join(input_folder, f) for f in os.listdir(input_folder)
         if os.path.splitext(f.lower())[1] in {'.jpg', '.jpeg', '.png'}
-    ]
+    ][:max_images]
 
     if not image_files:
         print("No valid images found.")
-        return [], {'detected': 0, 'processed': 0, 'errors': 0}
+        return [], {'detected': 0, 'processed': 0, 'errors': 0, 'detections': {}}
 
     detector = initialize_detector()
     if not detector:
-        return [], {'detected': 0, 'processed': 0, 'errors': 0}
+        return [], {'detected': 0, 'processed': 0, 'errors': 0, 'detections': {}}
 
-    print("\nStarting mountain detection...")
+    print("\nStarting mountain detection with ADE20K...")
     start_time = time.time()
-    stats = {'detected': 0, 'processed': 0, 'errors': 0}
+    stats = {'detected': 0, 'processed': 0, 'errors': 0, 'detections': {}}
     images_with_objects = []
 
     for image_path in image_files:
         try:
-            detections = detect_mountains(detector, image_path, confidence_threshold)
+            detections = detect_mountains_single(detector, image_path, confidence_threshold)
             stats['processed'] += 1
             if detections:
                 images_with_objects.append(image_path)
                 stats['detected'] += len(detections)
+                stats['detections'][image_path] = detections
                 print(f"Found {len(detections)} mountains in {os.path.basename(image_path)}")
 
                 if output_folder:
@@ -95,7 +103,6 @@ def process_images(input_folder, output_folder=None, confidence_threshold=0.5):
     return images_with_objects, stats
 
 def print_summary(start_time, stats, images_with_objects):
-    """Print summary statistics for mountain detection."""
     elapsed_time = time.time() - start_time
     avg_time_per_image = elapsed_time / stats['processed'] if stats['processed'] > 0 else 0
     images_per_second = stats['processed'] / elapsed_time if elapsed_time > 0 else 0

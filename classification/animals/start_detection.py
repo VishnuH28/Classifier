@@ -2,9 +2,9 @@ import os
 import uuid
 import asyncio
 from .detector import process_images as detect_animals_in_folder
-from data.err_msgs import ErrorMessages  
-from database.postgres import postgres, check_connection  
-from data.table_names import TableNames  
+from data.err_msgs import ErrorMessages
+from database.postgres import postgres, check_connection
+from data.table_names import TableNames
 
 async def start_detection(r_id, abs_path):
     """Main entry point to start animal detection process."""
@@ -24,7 +24,7 @@ async def start_detection(r_id, abs_path):
             postgres.commit()
 
         if not os.path.exists(abs_path):
-            raise FileNotFoundError(f"The file {abs_path} does not exist.")
+            raise FileNotFoundError(f"The folder {abs_path} does not exist.")
 
         input_folder = abs_path
         output_folder = os.path.join(os.path.dirname(__file__), "detected_animals")
@@ -34,8 +34,7 @@ async def start_detection(r_id, abs_path):
             raise Exception("No animals detected in the provided folder.")
 
         with postgres.cursor() as cur:
-            for image_path in images_with_animals:
-                detections = detect_animals_in_folder(image_path)  # Re-detect for details
+            for image_path, detections in stats['detections'].items():
                 for label, _, confidence in detections:
                     cur.execute(
                         f"INSERT INTO {TableNames.DETECTED_OBJECTS.value} (req_id, image_path, object_label, confidence) VALUES (%s, %s, %s, %s)",
@@ -50,7 +49,7 @@ async def start_detection(r_id, abs_path):
         success = True
         msg = "Animal detection process completed successfully"
     except Exception as e:
-        print(f"start_animal_detection(): {e}")
+        print(f"start_animal_detection(): {str(e)}")
         msg = str(e) or ErrorMessages.GENERIC_ERROR.value
         try:
             with postgres.cursor() as cur:
