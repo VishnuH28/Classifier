@@ -6,6 +6,8 @@ from classification.animals.start_detection import start_detection as detect_ani
 from classification.food.start_detection import start_detection as detect_food
 from classification.plants.start_detection import start_detection as detect_plants
 from classification.mountains.start_detection import start_detection as detect_mountains
+from classification.sea.start_detection import start_detection as detect_sea
+from classification.cars.start_detection import start_detection as detect_cars
 from data.table_names import TableNames
 
 apiRoutes = Blueprint('apiRoutes', __name__)
@@ -14,7 +16,9 @@ CATEGORY_HANDLERS = {
     'animals': detect_animals,
     'food': detect_food,
     'plants': detect_plants,
-    'mountains': detect_mountains
+    'mountains': detect_mountains,
+    'sea': detect_sea,
+    'cars': detect_cars
 }
 
 @apiRoutes.route('/process/start', methods=['POST'])
